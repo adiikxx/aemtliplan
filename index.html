@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ämtliplan</title>
+<meta name="description" content="Ämtli, Punkte und Monatsziel für die Familie.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧹</text></svg>">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div id="banner" class="banner" hidden></div>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true">🧹</span>
+    <div>
+      <h1>Ämtliplan</h1>
+      <p class="sub" id="sub">Ämtli erledigen, Punkte sammeln, Monatsziel erreichen.</p>
+    </div>
+  </div>
+
+  <div class="account" id="account" hidden>
+    <label class="act-as" id="act-as-wrap" hidden>
+      Abhaken für
+      <select id="act-as"></select>
+    </label>
+    <span class="me-name" id="me-name"></span>
+    <button id="sign-out" type="button" class="ghost">Abmelden</button>
+  </div>
+</header>
+
+<main id="login" hidden>
+  <section class="panel login-panel" aria-labelledby="login-title">
+    <h2 id="login-title">Anmelden</h2>
+
+    <form id="login-form" class="stack" hidden>
+      <label>E-Mail <input name="email" type="email" autocomplete="username" required></label>
+      <label>Passwort <input name="password" type="password" autocomplete="current-password" required></label>
+      <button type="submit">Anmelden</button>
+      <p class="hint">Noch kein Konto? Frag die Person, die den Ämtliplan eingerichtet hat.</p>
+    </form>
+
+    <div id="demo-login" class="stack" hidden>
+      <p class="hint">Demo-Modus – wähle, wer du bist. Nichts verlässt diesen Browser.</p>
+      <div class="demo-people" id="demo-people"></div>
+    </div>
+
+    <p class="form-err" id="login-err" role="alert"></p>
+  </section>
+</main>
+
+<main id="app" hidden>
+  <section class="panel" aria-labelledby="score-title">
+    <div class="panel-head">
+      <div class="month-nav">
+        <button id="prev-month" type="button" class="ghost icon" aria-label="Vorheriger Monat">‹</button>
+        <h2 id="score-title">Dieser Monat</h2>
+        <button id="next-month" type="button" class="ghost icon" aria-label="Nächster Monat">›</button>
+      </div>
+      <span class="hint" id="score-hint"></span>
+    </div>
+    <ul class="scores" id="scores"></ul>
+  </section>
+
+  <div class="columns">
+    <section class="panel" aria-labelledby="daily-title">
+      <div class="panel-head">
+        <h2 id="daily-title">Tägliche Ämtli</h2>
+        <span class="hint" id="daily-hint"></span>
+      </div>
+      <ul class="tasks" id="daily"></ul>
+    </section>
+
+    <section class="panel" aria-labelledby="special-title">
+      <div class="panel-head">
+        <h2 id="special-title">Spezial-Ämtli</h2>
+        <span class="hint" id="special-hint"></span>
+      </div>
+      <ul class="tasks" id="special"></ul>
+      <details class="done-special" id="special-done-wrap" hidden>
+        <summary id="special-done-sum">Diesen Monat erledigt</summary>
+        <ul class="tasks" id="special-done"></ul>
+      </details>
+    </section>
+  </div>
+
+  <section class="panel" aria-labelledby="log-title">
+    <div class="panel-head">
+      <h2 id="log-title">Verlauf</h2>
+      <span class="hint" id="log-hint"></span>
+    </div>
+    <ul class="log" id="log"></ul>
+    <button id="log-more" type="button" class="ghost small log-more" hidden>Alle anzeigen</button>
+  </section>
+
+  <section class="panel" id="admin" aria-labelledby="admin-title" hidden>
+    <div class="panel-head">
+      <h2 id="admin-title">Verwalten</h2>
+      <span class="hint">nur für Admins sichtbar</span>
+    </div>
+
+    <div class="admin-grid">
+      <form id="task-form" class="stack">
+        <h3>Neues Ämtli</h3>
+        <label>Was ist zu tun?
+          <input name="title" type="text" maxlength="80" required placeholder="z. B. Geschirrspüler ausräumen">
+        </label>
+        <div class="row">
+          <label class="pts-field">Punkte
+            <input name="points" type="number" min="1" max="1000" step="1" value="5" required>
+          </label>
+          <fieldset class="seg">
+            <legend>Art</legend>
+            <div class="seg-opts">
+              <label><input type="radio" name="kind" value="daily" checked> Täglich</label>
+              <label><input type="radio" name="kind" value="special"> Spezial (einmalig)</label>
+            </div>
+          </fieldset>
+        </div>
+        <label id="due-field" hidden>Fällig bis (optional)
+          <input name="due_on" type="date">
+        </label>
+        <label>Notiz (optional)
+          <input name="notes" type="text" maxlength="500">
+        </label>
+        <button type="submit">Ämtli hinzufügen</button>
+      </form>
+
+      <form id="goal-form" class="stack">
+        <h3 id="goal-title">Monatsziel</h3>
+        <label>Punkte, die jede Person erreichen soll
+          <input id="goal-input" name="points" type="number" min="0" max="100000" step="1" required>
+        </label>
+        <button type="submit">Ziel speichern</button>
+        <p class="hint">Gilt auch für die folgenden Monate, bis du es änderst.</p>
+      </form>
+    </div>
+
+    <h3>Aktuelle Ämtli</h3>
+    <p class="hint">Geänderte Punkte gelten nur für künftige Einträge. Wird ein Ämtli entfernt, bleiben die bereits verdienten Punkte.</p>
+    <ul class="admin-list" id="task-admin"></ul>
+  </section>
+</main>
+
+<footer class="foot" id="foot" hidden>
+  <span id="status" class="status">wird geladen…</span>
+  <button id="refresh" type="button" class="ghost">Aktualisieren</button>
+</footer>
+
+<div id="toast" class="toast" role="status" hidden></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
