@@ -1,10 +1,34 @@
--- Chore Board — run once in Supabase: SQL Editor → New query → paste → Run.
--- Safe to run again: tables are only created if missing, functions and
--- policies are replaced.
+-- Ämtliplan — run in Supabase: SQL Editor → New query → paste → Run.
+-- Safe to run again.
+--
+-- No logins: people tap their name on the site. Anyone with the link can read
+-- and write, the same trade-off as the hiking dashboard. Keep the link in the
+-- family.
+
+-- ---------------------------------------------------------------------------
+-- Clean up the earlier password-login version. Its tables never held data,
+-- and they're only dropped if they still have the old login-based ids.
+-- ---------------------------------------------------------------------------
+drop trigger if exists on_auth_user_created on auth.users;
+drop function if exists public.handle_new_user();
+
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'profiles'
+      and column_name = 'id' and data_type = 'uuid'
+  ) then
+    drop table if exists public.completions, public.tasks, public.profiles cascade;
+  end if;
+end $$;
+
+-- Also removes the old admin-only policies on monthly_goals that used it;
+-- the open policies are created again further down.
+drop function if exists public.is_admin() cascade;
 
 -- ---------------------------------------------------------------------------
 -- "Today" by the house clock, not whatever time zone someone's phone is in.
--- Change the zone here if you ever need to.
 -- ---------------------------------------------------------------------------
 create or replace function public.today()
 returns date
@@ -13,60 +37,22 @@ set search_path = ''
 as $$ select (now() at time zone 'Europe/Zurich')::date $$;
 
 -- ---------------------------------------------------------------------------
--- Profiles: one per login. The admin account sets chores and goals.
+-- The family. Add, rename or remove people here and run the script again.
+-- The admin sets chores and goals; everyone else collects points.
 -- ---------------------------------------------------------------------------
 create table if not exists public.profiles (
-  id         uuid primary key references auth.users (id) on delete cascade,
-  name       text        not null check (length(trim(name)) between 1 and 32),
-  is_admin   boolean     not null default false,
-  created_at timestamptz not null default now()
+  id       text    primary key check (id ~ '^[a-z0-9_-]{1,32}$'),
+  name     text    not null check (length(trim(name)) between 1 and 32),
+  is_admin boolean not null default false
 );
 
-create or replace function public.is_admin()
-returns boolean
-language sql stable
-security definer
-set search_path = ''
-as $$
-  select coalesce((select is_admin from public.profiles where id = auth.uid()), false)
-$$;
-
--- Every new login gets a profile automatically. The name comes from the part
--- before the @ ("jan@example.com" -> "Jan"), and only "admin@..." becomes an
--- admin. Public sign-ups are switched off, so only accounts added in the
--- Supabase dashboard ever reach this.
-create or replace function public.handle_new_user()
-returns trigger
-language plpgsql
-security definer
-set search_path = ''
-as $$
-declare
-  login text := lower(split_part(coalesce(new.email, ''), '@', 1));
-begin
-  insert into public.profiles (id, name, is_admin)
-  values (
-    new.id,
-    left(coalesce(nullif(trim(new.raw_user_meta_data ->> 'name'), ''),
-                  nullif(initcap(login), ''), 'Jemand'), 32),
-    login = 'admin'
-  )
-  on conflict (id) do nothing;
-  return new;
-end $$;
-
-drop trigger if exists on_auth_user_created on auth.users;
-create trigger on_auth_user_created
-  after insert on auth.users
-  for each row execute function public.handle_new_user();
-
--- Catch up on anyone who was added before this script ran.
-insert into public.profiles (id, name, is_admin)
-select id,
-       left(coalesce(nullif(initcap(split_part(email, '@', 1)), ''), 'Jemand'), 32),
-       coalesce(lower(split_part(email, '@', 1)) = 'admin', false)
-from auth.users
-on conflict (id) do nothing;
+insert into public.profiles (id, name, is_admin) values
+  ('admin',     'Admin',     true),
+  ('renata',    'Renata',    false),
+  ('adi',       'Adi',       false),
+  ('jan',       'Jan',       false),
+  ('elisabeth', 'Elisabeth', false)
+on conflict (id) do update set name = excluded.name, is_admin = excluded.is_admin;
 
 -- ---------------------------------------------------------------------------
 -- Chores. "daily" can be done once per day; "special" can be done once, ever.
@@ -79,7 +65,6 @@ create table if not exists public.tasks (
   kind       text        not null check (kind in ('daily', 'special')),
   due_on     date,
   archived   boolean     not null default false,
-  created_by uuid        default auth.uid() references public.profiles (id) on delete set null,
   created_at timestamptz not null default now(),
   check (kind = 'special' or due_on is null)
 );
@@ -91,7 +76,7 @@ create table if not exists public.tasks (
 create table if not exists public.completions (
   id         bigint generated always as identity primary key,
   task_id    bigint      not null references public.tasks (id) on delete cascade,
-  user_id    uuid        not null default auth.uid() references public.profiles (id) on delete cascade,
+  user_id    text        not null references public.profiles (id) on delete cascade,
   done_on    date        not null default public.today(),
   points     integer     not null default 0,
   created_at timestamptz not null default now(),
@@ -111,8 +96,8 @@ create table if not exists public.monthly_goals (
 );
 
 -- ---------------------------------------------------------------------------
--- The rules for checking something off live in the database, so they hold
--- no matter what the website sends.
+-- Check-off rules live in the database, so two people tapping at once can't
+-- both get the points.
 -- ---------------------------------------------------------------------------
 create or replace function public.check_completion()
 returns trigger
@@ -123,18 +108,10 @@ as $$
 declare
   t public.tasks;
 begin
-  -- Lock the chore so two people tapping "I did it" at the same moment
-  -- can't both collect the points.
   select * into t from public.tasks where id = new.task_id for update;
 
   if not found or t.archived then
     raise exception 'Dieses Ämtli gibt es nicht mehr.';
-  end if;
-
-  -- Only admins may check a chore off for someone else or for another day.
-  if not public.is_admin() then
-    new.user_id := auth.uid();
-    new.done_on := public.today();
   end if;
 
   new.points := t.points;
@@ -161,55 +138,29 @@ create trigger completions_check
   for each row execute function public.check_completion();
 
 -- ---------------------------------------------------------------------------
--- Row Level Security. Only signed-in family members see anything.
--- Profiles (names, who is admin) are changed from the SQL editor — see README.
+-- Row Level Security: open to anyone with the site's key (no logins).
+-- The people list can only be changed here in the SQL editor.
 -- ---------------------------------------------------------------------------
 alter table public.profiles      enable row level security;
 alter table public.tasks         enable row level security;
 alter table public.completions   enable row level security;
 alter table public.monthly_goals enable row level security;
 
-drop policy if exists "family reads profiles" on public.profiles;
-create policy "family reads profiles" on public.profiles
-  for select to authenticated using (true);
-
-drop policy if exists "family reads chores" on public.tasks;
-drop policy if exists "admins add chores"   on public.tasks;
-drop policy if exists "admins edit chores"  on public.tasks;
-drop policy if exists "admins delete chores" on public.tasks;
-create policy "family reads chores" on public.tasks
-  for select to authenticated using (true);
-create policy "admins add chores" on public.tasks
-  for insert to authenticated with check ((select public.is_admin()));
-create policy "admins edit chores" on public.tasks
-  for update to authenticated
-  using ((select public.is_admin())) with check ((select public.is_admin()));
-create policy "admins delete chores" on public.tasks
-  for delete to authenticated using ((select public.is_admin()));
-
-drop policy if exists "family reads the log"   on public.completions;
-drop policy if exists "check off chores"       on public.completions;
-drop policy if exists "undo own chores today"  on public.completions;
-create policy "family reads the log" on public.completions
-  for select to authenticated using (true);
-create policy "check off chores" on public.completions
-  for insert to authenticated
-  with check (user_id = (select auth.uid()) or (select public.is_admin()));
-create policy "undo own chores today" on public.completions
-  for delete to authenticated
-  using ((user_id = (select auth.uid()) and done_on = public.today())
-         or (select public.is_admin()));
-
-drop policy if exists "family reads goals" on public.monthly_goals;
-drop policy if exists "admins add goals"   on public.monthly_goals;
-drop policy if exists "admins edit goals"  on public.monthly_goals;
+drop policy if exists "family reads goals"  on public.monthly_goals;
+drop policy if exists "admins add goals"    on public.monthly_goals;
+drop policy if exists "admins edit goals"   on public.monthly_goals;
 drop policy if exists "admins delete goals" on public.monthly_goals;
-create policy "family reads goals" on public.monthly_goals
-  for select to authenticated using (true);
-create policy "admins add goals" on public.monthly_goals
-  for insert to authenticated with check ((select public.is_admin()));
-create policy "admins edit goals" on public.monthly_goals
-  for update to authenticated
-  using ((select public.is_admin())) with check ((select public.is_admin()));
-create policy "admins delete goals" on public.monthly_goals
-  for delete to authenticated using ((select public.is_admin()));
+
+drop policy if exists "open read" on public.profiles;
+drop policy if exists "open"      on public.tasks;
+drop policy if exists "open"      on public.completions;
+drop policy if exists "open"      on public.monthly_goals;
+
+create policy "open read" on public.profiles
+  for select to anon, authenticated using (true);
+create policy "open" on public.tasks
+  for all to anon, authenticated using (true) with check (true);
+create policy "open" on public.completions
+  for all to anon, authenticated using (true) with check (true);
+create policy "open" on public.monthly_goals
+  for all to anon, authenticated using (true) with check (true);

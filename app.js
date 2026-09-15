@@ -3,7 +3,7 @@
 /* --------------------------------------------------------------------------
    Config
    -------------------------------------------------------------------------- */
-const CFG = Object.assign({ SUPABASE_URL: "", SUPABASE_ANON_KEY: "", LOGIN_DOMAIN: "example.com" }, window.CHORE_CONFIG || {});
+const CFG = Object.assign({ SUPABASE_URL: "", SUPABASE_ANON_KEY: "" }, window.CHORE_CONFIG || {});
 
 const HAS_KEYS =
   /^https:\/\/.+\.supabase\.co\/?$/.test(CFG.SUPABASE_URL.trim()) &&
@@ -11,10 +11,13 @@ const HAS_KEYS =
 
 const LOG_PREVIEW = 15;
 
-// People log in with just their name; Supabase needs an email behind the scenes.
-const loginEmail = (name) => {
-  const clean = name.trim().toLowerCase().replace(/\s+/g, "");
-  return clean.includes("@") ? clean : `${clean}@${CFG.LOGIN_DOMAIN}`;
+// Who is using this device. No passwords: pick your name, "Abmelden" to switch.
+const ME_KEY = "chores:me";
+const storedMe = () => {
+  try { return localStorage.getItem(ME_KEY); } catch { return null; }
+};
+const rememberMe = (id) => {
+  try { id ? localStorage.setItem(ME_KEY, id) : localStorage.removeItem(ME_KEY); } catch {}
 };
 
 /* --------------------------------------------------------------------------
@@ -46,7 +49,9 @@ const fmtTime = new Intl.DateTimeFormat(LOCALE, { hour: "2-digit", minute: "2-di
    Both expose the same methods.
    -------------------------------------------------------------------------- */
 function remoteStore() {
-  const db = window.supabase.createClient(CFG.SUPABASE_URL.trim(), CFG.SUPABASE_ANON_KEY.trim());
+  const db = window.supabase.createClient(CFG.SUPABASE_URL.trim(), CFG.SUPABASE_ANON_KEY.trim(), {
+    auth: { persistSession: false },
+  });
   const ok = ({ data, error }) => {
     if (error) throw new Error(error.message);
     return data;
@@ -55,17 +60,19 @@ function remoteStore() {
   return {
     kind: "supabase",
 
-    async me() {
-      const { data } = await db.auth.getSession();
-      const user = data.session && data.session.user;
-      if (!user) return null;
-      return ok(await db.from("profiles").select("id,name,is_admin").eq("id", user.id).maybeSingle());
+    async people() {
+      return ok(await db.from("profiles").select("id,name,is_admin"));
     },
-    async signIn(email, password) {
-      ok(await db.auth.signInWithPassword({ email, password }));
+    async me() {
+      const id = storedMe();
+      if (!id) return null;
+      return ok(await db.from("profiles").select("id,name,is_admin").eq("id", id).maybeSingle());
+    },
+    async signIn(id) {
+      rememberMe(id);
     },
     async signOut() {
-      await db.auth.signOut();
+      rememberMe(null);
     },
 
     // Completions from `from` onwards, plus every special-job completion ever
@@ -106,7 +113,6 @@ function remoteStore() {
 
 function localStore() {
   const KEY = "chores:demo-de-2";
-  const ME = "chores:demo-me";
   let data = null;
 
   const save = () => {
@@ -127,17 +133,18 @@ function localStore() {
   return {
     kind: "local",
 
-    demoProfiles: () => copy(db().profiles),
+    async people() {
+      return copy(db().profiles);
+    },
     async me() {
-      let id = null;
-      try { id = localStorage.getItem(ME); } catch {}
+      const id = storedMe();
       return copy(db().profiles.find((p) => p.id === id) || null);
     },
     async signIn(id) {
-      try { localStorage.setItem(ME, id); } catch {}
+      rememberMe(id);
     },
     async signOut() {
-      try { localStorage.removeItem(ME); } catch {}
+      rememberMe(null);
     },
 
     async load(_from, month) {
@@ -187,10 +194,8 @@ function localStore() {
     },
 
     reset() {
-      try {
-        localStorage.removeItem(KEY);
-        localStorage.removeItem(ME);
-      } catch {}
+      try { localStorage.removeItem(KEY); } catch {}
+      rememberMe(null);
       data = null;
     },
   };
@@ -302,7 +307,6 @@ const empty = (msg) => h("li", { class: "empty" }, state.lastSync ? msg : "Wird 
 function errText(e) {
   const msg = (e && e.message) || String(e);
   if (/duplicate key/i.test(msg)) return "Das hat schon jemand abgehakt.";
-  if (/invalid login credentials/i.test(msg)) return "Name oder Passwort stimmt nicht.";
   if (/failed to fetch|networkerror|load failed/i.test(msg)) return "Keine Verbindung zum Server – bitte Internet prüfen.";
   return msg;
 }
@@ -399,12 +403,12 @@ async function archive(t) {
   refresh();
 }
 
-async function signIn(...args) {
+async function signIn(id) {
   el("login-err").textContent = "";
   try {
-    await store.signIn(...args);
+    await store.signIn(id);
     const me = await store.me();
-    if (!me) throw new Error("Angemeldet, aber zu diesem Konto gibt es kein Profil. Wurde schema.sql ausgeführt?");
+    if (!me) throw new Error("Diese Person gibt es nicht mehr.");
     setMe(me);
   } catch (e) {
     el("login-err").textContent = errText(e);
@@ -434,13 +438,22 @@ function showView() {
   if (on) return render();
 
   el("sub").textContent = "Ämtli erledigen, Punkte sammeln, Monatsziel erreichen.";
-  el("login-form").hidden = store.kind !== "supabase";
-  el("demo-login").hidden = store.kind !== "local";
-  if (store.kind === "local") {
-    el("demo-people").replaceChildren(...store.demoProfiles().map((p) =>
-      h("button", { type: "button", onclick: () => signIn(p.id) }, p.is_admin ? `${p.name} · verteilt die Ämtli` : p.name)
-    ));
-  }
+  const host = el("people-pick");
+  host.replaceChildren(h("span", { class: "hint" }, "Wird geladen…"));
+  store.people()
+    .then((people) => {
+      if (state.me) return;
+      people.sort((a, b) => a.is_admin - b.is_admin || a.name.localeCompare(b.name));
+      host.replaceChildren(...(people.length
+        ? people.map((p) => h("button", {
+            type: "button", class: p.is_admin ? "ghost" : "", onclick: () => signIn(p.id),
+          }, p.is_admin ? `${p.name} · verteilt die Ämtli` : p.name))
+        : [h("span", { class: "hint" }, "Noch niemand eingetragen – wurde schema.sql ausgeführt?")]));
+    })
+    .catch((e) => {
+      host.replaceChildren();
+      el("login-err").textContent = errText(e);
+    });
 }
 
 function render() {
@@ -708,16 +721,6 @@ function init() {
       onclick: () => { store.reset(); setMe(null); },
     }, "Demo zurücksetzen"));
   }
-
-  el("login-form").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const form = e.currentTarget;
-    const fd = new FormData(form);
-    const btn = form.querySelector("button");
-    btn.disabled = true;
-    await signIn(loginEmail(String(fd.get("email"))), String(fd.get("password")));
-    btn.disabled = false;
-  });
 
   el("sign-out").addEventListener("click", async () => {
     await store.signOut();

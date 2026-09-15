@@ -33,20 +33,8 @@
 
 <main id="login" hidden>
   <section class="panel login-panel" aria-labelledby="login-title">
-    <h2 id="login-title">Anmelden</h2>
-
-    <form id="login-form" class="stack" hidden>
-      <label>Name <input name="email" type="text" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="z. B. jan" required></label>
-      <label>Passwort <input name="password" type="password" autocomplete="current-password" required></label>
-      <button type="submit">Anmelden</button>
-      <p class="hint">Noch kein Konto? Frag die Person, die den Ämtliplan eingerichtet hat.</p>
-    </form>
-
-    <div id="demo-login" class="stack" hidden>
-      <p class="hint">Demo-Modus – wähle, wer du bist. Nichts verlässt diesen Browser.</p>
-      <div class="demo-people" id="demo-people"></div>
-    </div>
-
+    <h2 id="login-title">Wer bist du?</h2>
+    <div class="people-pick" id="people-pick"></div>
     <p class="form-err" id="login-err" role="alert"></p>
   </section>
 </main>
