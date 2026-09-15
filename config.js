@@ -9,4 +9,8 @@
 window.CHORE_CONFIG = {
   SUPABASE_URL: "https://nixtfxegoztgmuhhxpay.supabase.co",
   SUPABASE_ANON_KEY: "sb_publishable_eOAoGGTfJ3-5qYc4gmXNCw_QkJK8UV-",
+
+  // Login is by name: "jan" signs in as jan@<LOGIN_DOMAIN> in Supabase.
+  // example.com is a reserved test domain, so no email is ever delivered.
+  LOGIN_DOMAIN: "example.com",
 };

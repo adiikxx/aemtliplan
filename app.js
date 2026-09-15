@@ -3,13 +3,19 @@
 /* --------------------------------------------------------------------------
    Config
    -------------------------------------------------------------------------- */
-const CFG = Object.assign({ SUPABASE_URL: "", SUPABASE_ANON_KEY: "" }, window.CHORE_CONFIG || {});
+const CFG = Object.assign({ SUPABASE_URL: "", SUPABASE_ANON_KEY: "", LOGIN_DOMAIN: "example.com" }, window.CHORE_CONFIG || {});
 
 const HAS_KEYS =
   /^https:\/\/.+\.supabase\.co\/?$/.test(CFG.SUPABASE_URL.trim()) &&
   CFG.SUPABASE_ANON_KEY.trim().length > 20;
 
 const LOG_PREVIEW = 15;
+
+// People log in with just their name; Supabase needs an email behind the scenes.
+const loginEmail = (name) => {
+  const clean = name.trim().toLowerCase().replace(/\s+/g, "");
+  return clean.includes("@") ? clean : `${clean}@${CFG.LOGIN_DOMAIN}`;
+};
 
 /* --------------------------------------------------------------------------
    Date helpers (local time; the database decides "today" in Europe/Zurich)
@@ -99,7 +105,7 @@ function remoteStore() {
 }
 
 function localStore() {
-  const KEY = "chores:demo-de";
+  const KEY = "chores:demo-de-2";
   const ME = "chores:demo-me";
   let data = null;
 
@@ -197,10 +203,13 @@ function seedDemo() {
   const stamp = (day) => `${day}T17:00:00.000Z`;
 
   const profiles = [
-    { id: "renata", name: "Renata", is_admin: true },
+    { id: "admin", name: "Admin", is_admin: true },
+    { id: "renata", name: "Renata", is_admin: false },
     { id: "adi", name: "Adi", is_admin: false },
-    { id: "sam", name: "Sam", is_admin: false },
+    { id: "jan", name: "Jan", is_admin: false },
+    { id: "elisabeth", name: "Elisabeth", is_admin: false },
   ];
+  const family = profiles.filter((p) => !p.is_admin).map((p) => p.id);
 
   const tasks = [
     ["Geschirrspüler ausräumen", 5, "daily", null, ""],
@@ -213,7 +222,7 @@ function seedDemo() {
     ["Auto waschen", 20, "special", offset(-1), ""],
   ].map(([title, points, kind, due_on, notes], i) => ({
     id: i + 1, title, notes, points, kind, due_on, archived: false,
-    created_by: "renata", created_at: stamp(offset(-40 + i)),
+    created_by: "admin", created_at: stamp(offset(-40 + i)),
   }));
 
   // Deterministic "random" history for the days so far this month.
@@ -226,7 +235,7 @@ function seedDemo() {
     for (const t of tasks.filter((x) => x.kind === "daily")) {
       if (rand() < 0.6) {
         completions.push({
-          id: nextId++, task_id: t.id, user_id: rand() < 0.55 ? "adi" : "sam",
+          id: nextId++, task_id: t.id, user_id: family[Math.floor(rand() * family.length)],
           done_on: day, points: t.points, created_at: stamp(day),
         });
       }
@@ -234,7 +243,7 @@ function seedDemo() {
   }
   completions.push({ id: nextId++, task_id: 8, user_id: "adi", done_on: offset(-2), points: 20, created_at: stamp(offset(-2)) });
 
-  return { v: 1, profiles, tasks, completions, goals: [{ month: monthOf(today), points: 150 }], nextId: 1000 };
+  return { v: 1, profiles, tasks, completions, goals: [{ month: monthOf(today), points: 100 }], nextId: 1000 };
 }
 
 let store = null;
@@ -293,7 +302,7 @@ const empty = (msg) => h("li", { class: "empty" }, state.lastSync ? msg : "Wird 
 function errText(e) {
   const msg = (e && e.message) || String(e);
   if (/duplicate key/i.test(msg)) return "Das hat schon jemand abgehakt.";
-  if (/invalid login credentials/i.test(msg)) return "E-Mail oder Passwort stimmt nicht.";
+  if (/invalid login credentials/i.test(msg)) return "Name oder Passwort stimmt nicht.";
   if (/failed to fetch|networkerror|load failed/i.test(msg)) return "Keine Verbindung zum Server – bitte Internet prüfen.";
   return msg;
 }
@@ -706,7 +715,7 @@ function init() {
     const fd = new FormData(form);
     const btn = form.querySelector("button");
     btn.disabled = true;
-    await signIn(String(fd.get("email")).trim(), String(fd.get("password")));
+    await signIn(loginEmail(String(fd.get("email"))), String(fd.get("password")));
     btn.disabled = false;
   });
 

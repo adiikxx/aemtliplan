@@ -13,7 +13,7 @@ set search_path = ''
 as $$ select (now() at time zone 'Europe/Zurich')::date $$;
 
 -- ---------------------------------------------------------------------------
--- Profiles: one per login. Admins (Renata) set chores and goals.
+-- Profiles: one per login. The admin account sets chores and goals.
 -- ---------------------------------------------------------------------------
 create table if not exists public.profiles (
   id         uuid primary key references auth.users (id) on delete cascade,
@@ -31,19 +31,25 @@ as $$
   select coalesce((select is_admin from public.profiles where id = auth.uid()), false)
 $$;
 
--- Every new login gets a profile automatically, named after their email.
+-- Every new login gets a profile automatically. The name comes from the part
+-- before the @ ("jan@example.com" -> "Jan"), and only "admin@..." becomes an
+-- admin. Public sign-ups are switched off, so only accounts added in the
+-- Supabase dashboard ever reach this.
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
 security definer
 set search_path = ''
 as $$
+declare
+  login text := lower(split_part(coalesce(new.email, ''), '@', 1));
 begin
-  insert into public.profiles (id, name)
+  insert into public.profiles (id, name, is_admin)
   values (
     new.id,
     left(coalesce(nullif(trim(new.raw_user_meta_data ->> 'name'), ''),
-                  split_part(new.email, '@', 1), 'Jemand'), 32)
+                  nullif(initcap(login), ''), 'Jemand'), 32),
+    login = 'admin'
   )
   on conflict (id) do nothing;
   return new;
@@ -55,8 +61,10 @@ create trigger on_auth_user_created
   for each row execute function public.handle_new_user();
 
 -- Catch up on anyone who was added before this script ran.
-insert into public.profiles (id, name)
-select id, left(coalesce(split_part(email, '@', 1), 'Jemand'), 32)
+insert into public.profiles (id, name, is_admin)
+select id,
+       left(coalesce(nullif(initcap(split_part(email, '@', 1)), ''), 'Jemand'), 32),
+       coalesce(lower(split_part(email, '@', 1)) = 'admin', false)
 from auth.users
 on conflict (id) do nothing;
 

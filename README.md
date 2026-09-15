@@ -1,8 +1,8 @@
 # 🧹 Ämtliplan
 
-Eine kleine Familien-Website für die Ämtli im Haushalt. Renata legt Ämtli an
-und gibt jedem Ämtli Punkte. Alle anderen haken ab, was sie erledigt haben,
-und sammeln Punkte für das Monatsziel.
+Eine kleine Familien-Website für die Ämtli im Haushalt. Das Konto `admin`
+legt Ämtli an und gibt jedem Ämtli Punkte. Renata, Adi, Jan und Elisabeth
+haken ab, was sie erledigt haben, und sammeln Punkte für das Monatsziel.
 
 Gleicher Aufbau wie das Hiking-Dashboard: statische Dateien auf GitHub Pages,
 Supabase für Daten und Logins. Kein Build-Schritt, kein Framework.
@@ -15,8 +15,9 @@ Supabase für Daten und Logins. Kein Build-Schritt, kein Framework.
   Fortschrittsbalken, frühere Monate kann man durchblättern.
 - **Verlauf:** wer hat was wann gemacht. Eigene Einträge kann man am selben
   Tag rückgängig machen. Admins können alle Einträge rückgängig machen.
-- **Admins** (Renata) legen Ämtli an, ändern und entfernen sie und setzen das
+- **Admins** (das Konto `admin`) legen Ämtli an, ändern und entfernen sie und setzen das
   Ziel. Admins können ein Ämtli auch *für* jemand anderen abhaken.
+- **Login nur mit Name und Passwort**, z. B. `jan`.
 - Funktioniert auf dem Handy und im Dark Mode. Aktualisiert sich alle 30
   Sekunden und sobald man zum Tab zurückkehrt.
 
@@ -31,23 +32,22 @@ Supabase für Daten und Logins. Kein Build-Schritt, kein Framework.
    **Run** klicken.
 3. **Authentication → Sign In / Providers**: "Allow new users to sign up"
    **ausschalten**. So kommen nur die Leute rein, die du selbst hinzufügst.
-4. **Authentication → Users → Add user → Create new user**: jedes
-   Familienmitglied mit E-Mail und Passwort anlegen und **Auto Confirm User**
-   anhaken.
-5. Namen setzen und Renata zur Admin machen. Das hier mit den echten
-   E-Mail-Adressen im SQL Editor ausführen:
+4. **Authentication → Users → Add user → Create new user**, für jede Person
+   einmal, mit Passwort und angehaktem **Auto Confirm User**:
 
-   ```sql
-   update public.profiles p set name = 'Renata', is_admin = true
-   from auth.users u where u.id = p.id and u.email = 'renata@example.com';
+   | Person | E-Mail im Dashboard | Login auf der Seite |
+   |---|---|---|
+   | Admin (verteilt die Ämtli) | `admin@example.com` | `admin` |
+   | Renata | `renata@example.com` | `renata` |
+   | Adi | `adi@example.com` | `adi` |
+   | Jan | `jan@example.com` | `jan` |
+   | Elisabeth | `elisabeth@example.com` | `elisabeth` |
 
-   update public.profiles p set name = 'Adi'
-   from auth.users u where u.id = p.id and u.email = 'adi@example.com';
-   ```
+   Name und Admin-Recht setzt die Datenbank automatisch: der Name kommt aus
+   dem Teil vor dem `@`, und nur `admin@…` wird Admin. `example.com` ist eine
+   reservierte Test-Domain, es werden nie E-Mails verschickt.
 
-   Ohne diesen Schritt heissen alle wie der erste Teil ihrer E-Mail-Adresse.
-
-6. **Project Settings → API Keys**: die **Project URL** und den
+5. **Project Settings → API Keys**: die **Project URL** und den
    **publishable** Key kopieren.
 
 ### 2. `config.js`
@@ -56,6 +56,7 @@ Supabase für Daten und Logins. Kein Build-Schritt, kein Framework.
 window.CHORE_CONFIG = {
   SUPABASE_URL: "https://abcdefgh.supabase.co",
   SUPABASE_ANON_KEY: "sb_publishable_...",
+  LOGIN_DOMAIN: "example.com", // Login "jan" = jan@example.com
 };
 ```
 
